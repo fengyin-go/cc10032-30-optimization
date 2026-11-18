@@ -82,13 +82,26 @@ class FailureRecovery:
 
 class Store:
     def __init__(self) -> None:
-        self._tables: dict[str, list[dict[str, Any]]] = {
-            name: [dict(row) for row in rows] for name, rows in SEED_ROWS.items()
+        # 额外示例表（状态条目、历史快照）合并进所属模块，不单独暴露为业务模块。
+        merged_tables = {
+            "state_store_state_entries": "state_store",
+            "checkpoint_mgr_snapshots": "checkpoint_mgr",
         }
+        self._tables: dict[str, list[dict[str, Any]]] = {
+            name: [copy.deepcopy(row) for row in rows]
+            for name, rows in SEED_ROWS.items()
+            if name not in merged_tables
+        }
+        for name, target in merged_tables.items():
+            if name in SEED_ROWS:
+                self._tables.setdefault(target, []).extend(
+                    copy.deepcopy(row) for row in SEED_ROWS[name])
         # 跨模块数据通道：channel_id → DataChannelEvent
         self._channels: dict[str, DataChannelEvent] = {}
         # 失败恢复记录：recovery_id → FailureRecovery
         self._failures: dict[str, FailureRecovery] = {}
+        # 检查点状态恢复数据导出台账
+        self._checkpoint_exports: list[dict[str, Any]] = []
 
     # ---- 跨模块数据通道 ----
 

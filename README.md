@@ -18,6 +18,7 @@
 │   ├── app/routers/resource.py  通用查询/导出/登记/动作接口
 │   ├── app/services/<key>.py    每个模块独立领域逻辑
 │   ├── app/services/base.py     共享服务骨架
+│   ├── app/services/retention.py 检查点/状态/恢复文件共用的保留边界
 │   └── app/store.py          内存数据仓库与示例数据
 ├── .gitignore
 └── docker-compose.yml
@@ -70,6 +71,38 @@ npm run dev
 | 数据采样 | `data_sampler` | 采样策略 | 策略名称、采样方式、采样比例 |
 | 调试追踪 | `debug_trace` | 调试会话 | 会话名称、目标算子、采样数据 |
 | 聚合落库 | `aggregate_sink` | 聚合任务 | 任务名称、源指标集、聚合粒度 |
+
+## 保留边界与状态恢复
+
+检查点保留窗口、状态压缩和恢复文件导出共用一套保留边界（见
+`backend/app/services/retention.py`）：
+
+- 检查点按「保留数量」裁剪快照时只改快照状态，不会把状态存储里的行提前标成停用；
+- 状态压缩（`state_store.compact_duplicate_states`）同时读取
+  `checkpoint_mgr.available_snapshots()` 的引用版本，最新版本和所有被引用版本都保留；
+- 保留窗口缩短支持 `immediate`（立即裁剪并压缩被释放版本）和 `deferred`
+  （等新回放成功后再释放），两种方式最终收敛到同一个连续可恢复区间；
+- `replay_engine` 只接受可用快照集合内的源，回放时逐键核对快照键集合与恢复状态集合；
+- 恢复数据有两种文件边界：`checkpoint`（逐快照完整导出，覆盖整个连续可恢复区间）和
+  `state`（按状态键去重最新版本）。同一份文件重复导入只入库一次，校验失败整体回退。
+
+对应接口（`/api/checkpoint-retention`）：
+
+| 接口 | 用途 |
+| --- | --- |
+| `GET /configs` | 可选的检查点配置 |
+| `GET /{config}/report` | 检查点与状态行的保留原因 |
+| `GET /{config}/coverage` | 连续可恢复区间、缺口、可恢复性 |
+| `GET /{config}/export?boundary=checkpoint\|state` | 下载状态恢复数据 |
+| `POST /verify` / `POST /import` | 同源文件再次上传校验、幂等导入 |
+| `POST /{config}/window` | 缩短保留窗口（`immediate` / `deferred`） |
+| `POST /{config}/replay` | 用可用快照演练回放并兑现延迟裁剪 |
+| `GET /replays` | 回放历史与「所有可用快照是否都可恢复」 |
+| `GET /ledger` | 状态恢复数据导出台账 |
+| `GET /{config}/state-retention` | 状态页展示的保留原因 |
+
+前端「保留边界」页面（`frontend/src/views/RetentionView.vue`）承载上述流程，
+检查点与状态存储工作台也有入口。
 
 ## 约定
 

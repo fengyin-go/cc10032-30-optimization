@@ -12,6 +12,14 @@
         <button class="btn" data-testid="export" type="button" @click="exportRows">
           导出{{ meta.name }}清单
         </button>
+        <RouterLink
+          v-if="meta.key === 'checkpoint_mgr' || meta.key === 'state_store'"
+          class="btn"
+          data-testid="open-retention"
+          to="/retention"
+        >
+          保留边界与状态恢复
+        </RouterLink>
       </div>
     </header>
 
